@@ -46,19 +46,26 @@ async def probe_host(host: str | None) -> bool:
     if not host:
         return False
 
-    command = ["ping", "-c", "1", "-W", "1", host]
+    command = ["ping", "-c", "2", "-W", "4", host]
     if platform.system().lower().startswith("win"):
-        command = ["ping", "-n", "1", "-w", "1000", host]
+        command = ["ping", "-n", "2", "-w", "4000", host]
 
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
         try:
-            await asyncio.wait_for(process.wait(), timeout=5.0)
-            return process.returncode == 0
+            # Increased wait_for timeout to allow multiple slow pings to complete
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=12.0)
+            output_str = stdout.decode("utf-8", errors="ignore").lower()
+            
+            # Using "ttl=" ensures we don't falsely match "Destination host unreachable" 
+            # which can sometimes return exit code 0 on Windows.
+            if "ttl=" in output_str:
+                return True
+            return False
         except asyncio.TimeoutError:
             try:
                 process.kill()
