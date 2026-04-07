@@ -59,7 +59,14 @@ async def ingest(report: AgentReport) -> dict[str, str]:
     )
 
     if previous and previous.status == "down" and report.status != "down":
-        await raise_alert(report.site_name, report.site_id, "site", "recovered", "site reported back online")
+        await raise_alert(
+            report.site_name,
+            report.site_id,
+            "site",
+            "recovered",
+            "site reported back online",
+            latest_file=report.latest_file,
+        )
 
     return {"status": "accepted"}
 
@@ -96,6 +103,7 @@ async def watchdog_loop() -> None:
                     "site",
                     "down",
                     f"site has not reported for {int(age)} seconds",
+                    latest_file=site.last_report.latest_file if site.last_report else None,
                 )
 
         await asyncio.sleep(settings.heartbeat_poll_seconds)
@@ -108,6 +116,7 @@ async def raise_alert(
     status: str,
     message: str,
     checks: list[str] | None = None,
+    latest_file: str | None = None,
 ) -> None:
     alert = AlertItem(
         site_name=site_name,
@@ -116,6 +125,7 @@ async def raise_alert(
         status=status,
         message=message,
         checks=checks or [],
+        latest_file=latest_file,
         created_at=datetime.now(timezone.utc),
     )
     await store_alert(settings.database_path, alert)

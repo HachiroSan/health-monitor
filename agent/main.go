@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -15,10 +18,11 @@ import (
 const heartbeatInterval = 15 * time.Second
 
 type Report struct {
-	SiteName  string    `json:"site_name"`
-	SiteID    string    `json:"site_id"`
-	Timestamp time.Time `json:"timestamp"`
-	Status    string    `json:"status"`
+	SiteName   string    `json:"site_name"`
+	SiteID     string    `json:"site_id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Status     string    `json:"status"`
+	LatestFile string    `json:"latest_file,omitempty"`
 }
 
 func main() {
@@ -49,12 +53,47 @@ func runOnce(cfg Config, client *http.Client) error {
 }
 
 func buildReport(cfg Config) Report {
+	latestFile := latestTxtFile(cfg.LatestFileFolder)
+
 	return Report{
-		SiteName:  cfg.SiteName,
-		SiteID:    cfg.SiteID,
-		Timestamp: time.Now().UTC(),
-		Status:    "ok",
+		SiteName:   cfg.SiteName,
+		SiteID:     cfg.SiteID,
+		Timestamp:  time.Now().UTC(),
+		Status:     "ok",
+		LatestFile: latestFile,
 	}
+}
+
+func latestTxtFile(folder string) string {
+	folder = strings.TrimSpace(folder)
+	if folder == "" {
+		return ""
+	}
+
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		log.Printf("latest txt scan failed for %q: %v", folder, err)
+		return ""
+	}
+
+	files := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.EqualFold(filepath.Ext(name), ".txt") {
+			files = append(files, name)
+		}
+	}
+
+	if len(files) == 0 {
+		return ""
+	}
+
+	sort.Strings(files)
+	return files[len(files)-1]
 }
 
 func sendReport(cfg Config, client *http.Client, report Report) error {

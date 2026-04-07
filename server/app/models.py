@@ -8,6 +8,7 @@ class AgentReport(BaseModel):
     site_id: str
     timestamp: datetime
     status: str = Field(default="ok")
+    latest_file: str | None = None
 
 
 class SiteState(BaseModel):
@@ -25,4 +26,5 @@ class AlertItem(BaseModel):
     status: str
     message: str
     checks: list[str] = Field(default_factory=list)
+    latest_file: str | None = None
     created_at: datetime

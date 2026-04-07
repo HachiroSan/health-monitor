@@ -31,6 +31,9 @@ class TelegramNotifier:
         if alert.checks:
             lines.append(f"Checks: {' | '.join(alert.checks)}")
 
+        if alert.latest_file:
+            lines.append(f"Latest file: {alert.latest_file}")
+
         lines.append(f"Reason: {alert.message}")
         lines.append("")
         lines.append(timestamp)

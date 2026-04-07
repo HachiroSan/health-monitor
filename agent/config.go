@@ -8,10 +8,11 @@ import (
 )
 
 type Config struct {
-	SiteName  string `yaml:"site_name"`
-	SiteID    string `yaml:"site_id"`
-	ServerIP  string `yaml:"server_ip"`
-	AuthToken string `yaml:"auth_token"`
+	SiteName         string `yaml:"site_name"`
+	SiteID           string `yaml:"site_id"`
+	ServerIP         string `yaml:"server_ip"`
+	AuthToken        string `yaml:"auth_token"`
+	LatestFileFolder string `yaml:"latest_txt_folder"`
 }
 
 func LoadConfig(path string) (Config, error) {
