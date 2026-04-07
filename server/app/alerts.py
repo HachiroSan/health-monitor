@@ -35,6 +35,9 @@ class TelegramNotifier:
         if alert.latest_file:
             lines.append(f"Latest file: {alert.latest_file}")
 
+        if alert.component.lower() == "router" and alert.status.lower() == "down":
+            lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
+
         lines.append(f"Reason: {alert.message}")
         lines.append("")
         lines.append(timestamp)
@@ -129,8 +132,14 @@ class TelegramNotifier:
             if primary_alert is not None:
                 lines.append(f"Primary: {TelegramNotifier._component_label(primary_alert.component)} {primary_alert.status.replace('_', ' ').upper()}")
 
+                if primary_alert.component.lower() == "router" and primary_alert.status.lower() == "down":
+                    lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
+
             if related_components:
-                    lines.append(f"Related: {', '.join(f'{component} DOWN' for component in related_components)}")
+                lines.append(f"Related: {', '.join(f'{component} DOWN' for component in related_components)}")
+
+            if any(alert.component.lower() == "router" and alert.status.lower() == "down" for alert in site_alerts):
+                lines.append("Priority: Router outage affects PC connectivity")
 
             lines.append(f"Last seen: {last_seen}")
 

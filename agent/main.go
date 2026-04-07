@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,6 +23,8 @@ type Report struct {
 	SiteID     string    `json:"site_id"`
 	Timestamp  time.Time `json:"timestamp"`
 	Status     string    `json:"status"`
+	RouterIP   string    `json:"router_ip,omitempty"`
+	RouterStatus string  `json:"router_status,omitempty"`
 	LatestFile string    `json:"latest_file,omitempty"`
 }
 
@@ -54,14 +57,43 @@ func runOnce(cfg Config, client *http.Client) error {
 
 func buildReport(cfg Config) Report {
 	latestFile := latestTxtFile(cfg.LatestFileFolder)
+	routerStatus := ""
+	if strings.TrimSpace(cfg.RouterIP) != "" {
+		if pingHost(cfg.RouterIP) {
+			routerStatus = "ok"
+		} else {
+			routerStatus = "down"
+		}
+	}
+
+	status := "ok"
+	if routerStatus == "down" {
+		status = "down"
+	}
 
 	return Report{
 		SiteName:   cfg.SiteName,
 		SiteID:     cfg.SiteID,
 		Timestamp:  time.Now().UTC(),
-		Status:     "ok",
+		Status:     status,
+		RouterIP:   strings.TrimSpace(cfg.RouterIP),
+		RouterStatus: routerStatus,
 		LatestFile: latestFile,
 	}
+}
+
+func pingHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return false
+	}
+
+	cmd := exec.Command("ping", "-n", "1", "-w", "1000", host)
+	if err := cmd.Run(); err != nil {
+		return false
+	}
+
+	return true
 }
 
 func latestTxtFile(folder string) string {

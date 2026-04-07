@@ -8,6 +8,8 @@ class AgentReport(BaseModel):
     site_id: str
     timestamp: datetime
     status: str = Field(default="ok")
+    router_ip: str | None = None
+    router_status: str | None = None
     latest_file: str | None = None
 
 

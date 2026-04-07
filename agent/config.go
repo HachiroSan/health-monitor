@@ -12,6 +12,7 @@ type Config struct {
 	SiteID           string `yaml:"site_id"`
 	ServerIP         string `yaml:"server_ip"`
 	AuthToken        string `yaml:"auth_token"`
+	RouterIP         string `yaml:"router_ip"`
 	LatestFileFolder string `yaml:"latest_txt_folder"`
 }
 

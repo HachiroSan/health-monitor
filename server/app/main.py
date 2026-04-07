@@ -66,6 +66,28 @@ async def ingest(report: AgentReport) -> dict[str, str]:
         last_report=report,
     )
 
+    previous_router_status = previous.last_report.router_status if previous and previous.last_report else None
+    if report.router_status and report.router_status != previous_router_status:
+        router_status = report.router_status.lower()
+        if router_status == "down":
+            await raise_alert(
+                report.site_name,
+                report.site_id,
+                "router",
+                "down",
+                f"router unreachable: {report.router_ip or 'unknown'}",
+                latest_file=report.latest_file,
+            )
+        elif previous_router_status == "down" and router_status == "ok":
+            await raise_alert(
+                report.site_name,
+                report.site_id,
+                "router",
+                "recovered",
+                f"router reachable again: {report.router_ip or 'unknown'}",
+                latest_file=report.latest_file,
+            )
+
     if previous and previous.status == "down" and report.status != "down":
         await raise_alert(
             report.site_name,
