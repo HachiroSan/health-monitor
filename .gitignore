@@ -1,0 +1,8 @@
+agent/bin/
+agent/*.exe
+server/.venv/
+server/__pycache__/
+server/app/__pycache__/
+server/*.db
+server/*.sqlite3
+.DS_Store
