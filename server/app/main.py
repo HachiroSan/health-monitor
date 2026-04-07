@@ -58,6 +58,17 @@ async def ingest(report: AgentReport) -> dict[str, str]:
     await store_report(settings.database_path, report)
 
     previous = runtime.sites.get(report.site_id)
+
+    if previous is None:
+        await raise_alert(
+            report.site_name,
+            report.site_id,
+            "site",
+            "started",
+            "agent started reporting",
+            latest_file=report.latest_file,
+        )
+
     runtime.sites[report.site_id] = SiteState(
         site_name=report.site_name,
         site_id=report.site_id,
