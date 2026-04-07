@@ -21,6 +21,8 @@ class SiteState(BaseModel):
 class AlertItem(BaseModel):
     site_name: str
     site_id: str
+    component: str = Field(default="site")
     status: str
     message: str
+    checks: list[str] = Field(default_factory=list)
     created_at: datetime

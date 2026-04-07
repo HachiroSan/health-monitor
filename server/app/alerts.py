@@ -20,15 +20,22 @@ class TelegramNotifier:
             "warning": "🟡",
         }
         emoji = emoji_map.get(alert.status.lower(), "ℹ️")
+        component = alert.component.replace("_", " ").upper()
         timestamp = alert.created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         status_label = alert.status.replace("_", " ").upper()
+        lines = [
+            f"{emoji} {component} {status_label} | {alert.site_name}",
+            f"ID: {alert.site_id}",
+        ]
 
-        return (
-            f"{emoji} {alert.site_name} ({alert.site_id})\n"
-            f"Status: {status_label}\n"
-            f"Message: {alert.message}\n\n"
-            f"{timestamp}"
-        )
+        if alert.checks:
+            lines.append(f"Checks: {' | '.join(alert.checks)}")
+
+        lines.append(f"Reason: {alert.message}")
+        lines.append("")
+        lines.append(timestamp)
+
+        return "\n".join(lines)
 
     async def send(self, message: str) -> None:
         if not self._enabled:
