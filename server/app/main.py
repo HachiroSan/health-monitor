@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
+import uvicorn
 
 from .alerts import TelegramNotifier
 from .db import initialize_database, store_alert, store_report
@@ -123,3 +124,16 @@ async def raise_alert(
         await runtime.notifier.send(TelegramNotifier.format_alert(alert))
     except Exception:
         pass
+
+
+def main() -> None:
+    uvicorn.run(
+        "app.main:app",
+        host=settings.server_host,
+        port=settings.server_port,
+        reload=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

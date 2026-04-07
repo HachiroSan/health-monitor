@@ -16,3 +16,13 @@ This repository is split into two top-level parts:
 2. Add a systemd unit and deployment script for the server.
 3. Wire in Telegram bot credentials and site configuration.
 4. Keep the agent config minimal: `site_name`, `site_id`, `server_ip`, and optional empty `auth_token`.
+
+## Server port
+
+The FastAPI server reads `SERVER_HOST` and `SERVER_PORT` from `server/.env`.
+If you want a custom port, set `SERVER_PORT` and run the server with:
+
+```bash
+python -m app.main
+```
+
