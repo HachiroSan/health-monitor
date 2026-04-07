@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from collections import defaultdict
 
 import httpx
@@ -22,7 +23,10 @@ class TelegramNotifier:
         }
         emoji = emoji_map.get(alert.status.lower(), "ℹ️")
         component = alert.component.replace("_", " ").upper()
-        timestamp = alert.created_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        tz = ZoneInfo(settings.daily_summary_timezone)
+        timestamp = alert.created_at.astimezone(tz).strftime(f"%Y-%m-%d %H:%M:%S {settings.daily_summary_timezone}")
+        
         status_label = alert.status.replace("_", " ").upper()
         lines = [
             f"{emoji} {component} {status_label} | {alert.site_name}",
@@ -49,7 +53,8 @@ class TelegramNotifier:
 
     @staticmethod
     def format_daily_summary(sites: list[SiteState], generated_at: datetime, timezone_name: str) -> str:
-        summary_time = generated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        tz = ZoneInfo(timezone_name)
+        summary_time = generated_at.astimezone(tz).strftime(f"%Y-%m-%d %H:%M:%S {timezone_name}")
         total = len(sites)
         up_count = sum(1 for site in sites if site.status.lower() != "down")
         down_count = total - up_count
@@ -69,7 +74,7 @@ class TelegramNotifier:
 
         for index, site in enumerate(ordered_sites):
             emoji = "🔴" if site.status.lower() == "down" else "🟢"
-            last_seen = site.last_seen.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if site.last_seen else "n/a"
+            last_seen = site.last_seen.astimezone(tz).strftime(f"%Y-%m-%d %H:%M:%S {timezone_name}") if site.last_seen else "n/a"
             latest_file = site.last_report.latest_file if site.last_report and site.last_report.latest_file else ""
             latest_disk_usage = site.last_report.latest_disk_usage if site.last_report and site.last_report.latest_disk_usage else ""
             status_label = site.status.replace("_", " ").upper()
@@ -100,7 +105,8 @@ class TelegramNotifier:
         generated_at: datetime,
         timezone_name: str,
     ) -> str:
-        summary_time = generated_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        tz = ZoneInfo(timezone_name)
+        summary_time = generated_at.astimezone(tz).strftime(f"%Y-%m-%d %H:%M:%S {timezone_name}")
         total = len(sites)
         up_count = sum(1 for site in sites if site.status.lower() != "down")
         down_count = total - up_count
@@ -124,7 +130,7 @@ class TelegramNotifier:
 
         for index, site in enumerate(ordered_sites):
             emoji = "🔴" if site.status.lower() == "down" else "🟢"
-            last_seen = site.last_seen.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if site.last_seen else "n/a"
+            last_seen = site.last_seen.astimezone(tz).strftime(f"%Y-%m-%d %H:%M:%S {timezone_name}") if site.last_seen else "n/a"
             latest_file = site.last_report.latest_file if site.last_report and site.last_report.latest_file else ""
             latest_disk_usage = site.last_report.latest_disk_usage if site.last_report and site.last_report.latest_disk_usage else ""
             site_alerts = alerts_by_site.get(site.site_id, [])
