@@ -1,8 +1,6 @@
 site_name: site-1
 site_id: site-001
-server_ip: 192.168.1.10:8080
+server_ip: 192.168.100.10:8080
 auth_token: ""
-# Optional: router IP to probe from the agent
-router_ip: ""
 # Optional: scan this folder and report the latest *.txt filename
 latest_txt_folder: ""

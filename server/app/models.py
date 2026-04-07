@@ -18,6 +18,11 @@ class SiteState(BaseModel):
     site_name: str
     site_id: str
     status: str
+    router_ip: str | None = None
+    pc_ip: str | None = None
+    router_status: str | None = None
+    pc_status: str | None = None
+    last_probe_at: datetime | None = None
     last_seen: datetime | None = None
     last_report: AgentReport | None = None
 

@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_path: str = "health_monitor.sqlite3"
+    sites_config_path: str = "sites.json"
     server_host: str = "0.0.0.0"
     server_port: int = 8000
     daily_summary_timezone: str = "Asia/Kuala_Lumpur"

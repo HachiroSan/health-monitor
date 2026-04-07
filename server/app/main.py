@@ -12,31 +12,40 @@ import uvicorn
 from .alerts import TelegramNotifier
 from .db import fetch_alerts_since, initialize_database, store_alert, store_report
 from .models import AgentReport, AlertItem, SiteState
+from .site_targets import SiteTarget, load_site_targets, probe_host
 from .settings import settings
 
 
 @dataclass
 class RuntimeState:
     sites: dict[str, SiteState]
+    targets: dict[str, SiteTarget]
     notifier: TelegramNotifier
     summary_sent_date: date | None
 
 
-runtime = RuntimeState(sites={}, notifier=TelegramNotifier(), summary_sent_date=None)
+runtime = RuntimeState(sites={}, targets={}, notifier=TelegramNotifier(), summary_sent_date=None)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_database(settings.database_path)
+    runtime.targets = load_site_targets(settings.sites_config_path)
     watchdog = asyncio.create_task(watchdog_loop())
+    probes = asyncio.create_task(site_probe_loop())
     summary = asyncio.create_task(daily_summary_loop())
     try:
         yield
     finally:
         watchdog.cancel()
+        probes.cancel()
         summary.cancel()
         try:
             await watchdog
+        except asyncio.CancelledError:
+            pass
+        try:
+            await probes
         except asyncio.CancelledError:
             pass
         try:
@@ -58,6 +67,7 @@ async def ingest(report: AgentReport) -> dict[str, str]:
     await store_report(settings.database_path, report)
 
     previous = runtime.sites.get(report.site_id)
+    target = runtime.targets.get(report.site_id)
 
     if previous is None:
         await raise_alert(
@@ -73,31 +83,14 @@ async def ingest(report: AgentReport) -> dict[str, str]:
         site_name=report.site_name,
         site_id=report.site_id,
         status=report.status,
+        router_ip=target.router_ip if target else (previous.router_ip if previous else None),
+        pc_ip=target.pc_ip if target else (previous.pc_ip if previous else None),
+        router_status=previous.router_status if previous else None,
+        pc_status=previous.pc_status if previous else None,
+        last_probe_at=previous.last_probe_at if previous else None,
         last_seen=report.timestamp,
         last_report=report,
     )
-
-    previous_router_status = previous.last_report.router_status if previous and previous.last_report else None
-    if report.router_status and report.router_status != previous_router_status:
-        router_status = report.router_status.lower()
-        if router_status == "down":
-            await raise_alert(
-                report.site_name,
-                report.site_id,
-                "router",
-                "down",
-                f"router unreachable: {report.router_ip or 'unknown'}",
-                latest_file=report.latest_file,
-            )
-        elif previous_router_status == "down" and router_status == "ok":
-            await raise_alert(
-                report.site_name,
-                report.site_id,
-                "router",
-                "recovered",
-                f"router reachable again: {report.router_ip or 'unknown'}",
-                latest_file=report.latest_file,
-            )
 
     if previous and previous.status == "down" and report.status != "down":
         await raise_alert(
@@ -138,6 +131,11 @@ async def watchdog_loop() -> None:
                     status="down",
                     last_seen=site.last_seen,
                     last_report=site.last_report,
+                    router_ip=site.router_ip,
+                    pc_ip=site.pc_ip,
+                    router_status=site.router_status,
+                    pc_status=site.pc_status,
+                    last_probe_at=site.last_probe_at,
                 )
                 await raise_alert(
                     site.site_name,
@@ -150,6 +148,84 @@ async def watchdog_loop() -> None:
                 )
 
         await asyncio.sleep(settings.heartbeat_poll_seconds)
+
+
+async def site_probe_loop() -> None:
+    while True:
+        await probe_sites_once()
+        await asyncio.sleep(settings.heartbeat_poll_seconds)
+
+
+async def probe_sites_once() -> None:
+    for site_id, target in runtime.targets.items():
+        previous = runtime.sites.get(site_id)
+        if previous is None:
+            previous = SiteState(site_name=target.site_name, site_id=site_id, status="ok")
+
+        router_up = probe_host(target.router_ip)
+        previous_router_status = previous.router_status or "unknown"
+        router_status = "ok" if router_up else "down"
+
+        pc_status = previous.pc_status or "unknown"
+        pc_up = False
+        if router_up and target.pc_ip:
+            pc_up = probe_host(target.pc_ip)
+            pc_status = "ok" if pc_up else "down"
+        elif not router_up:
+            pc_status = "unknown"
+
+        updated_state = SiteState(
+            site_name=target.site_name,
+            site_id=site_id,
+            status="down" if router_status == "down" or pc_status == "down" else previous.status,
+            router_ip=target.router_ip,
+            pc_ip=target.pc_ip,
+            router_status=router_status,
+            pc_status=pc_status,
+            last_probe_at=datetime.now(timezone.utc),
+            last_seen=previous.last_seen,
+            last_report=previous.last_report,
+        )
+        runtime.sites[site_id] = updated_state
+
+        if previous_router_status != router_status:
+            if router_status == "down":
+                await raise_alert(
+                    target.site_name,
+                    site_id,
+                    "router",
+                    "down",
+                    f"router unreachable: {target.router_ip or 'unknown'}",
+                )
+            elif previous_router_status == "down" and router_status == "ok":
+                await raise_alert(
+                    target.site_name,
+                    site_id,
+                    "router",
+                    "recovered",
+                    f"router reachable again: {target.router_ip or 'unknown'}",
+                )
+
+        previous_pc_status = previous.pc_status or "unknown"
+        if router_up and previous_pc_status != pc_status and target.pc_ip:
+            if pc_status == "down":
+                await raise_alert(
+                    target.site_name,
+                    site_id,
+                    "pc",
+                    "down",
+                    f"pc unreachable: {target.pc_ip}",
+                )
+            elif previous_pc_status == "down" and pc_status == "ok":
+                await raise_alert(
+                    target.site_name,
+                    site_id,
+                    "pc",
+                    "recovered",
+                    f"pc reachable again: {target.pc_ip}",
+                )
+
+
 
 
 async def daily_summary_loop() -> None:

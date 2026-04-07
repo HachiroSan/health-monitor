@@ -1,0 +1,16 @@
+{
+  "sites": [
+    {
+      "site_name": "HQ Site",
+      "site_id": "hq-001",
+      "router_ip": "192.168.1.1",
+      "pc_ip": "192.168.1.20"
+    },
+    {
+      "site_name": "Branch 1",
+      "site_id": "br-001",
+      "router_ip": "192.168.2.1",
+      "pc_ip": "192.168.2.20"
+    }
+  ]
+}
