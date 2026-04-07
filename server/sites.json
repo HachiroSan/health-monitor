@@ -1,0 +1,10 @@
+{
+  "sites": [
+    {
+      "site_name": "hachiro",
+      "site_id": "hachiro-pc",
+      "router_ip": "127.0.0.1",
+      "pc_ip": "127.0.0.1"
+    }
+  ]
+}

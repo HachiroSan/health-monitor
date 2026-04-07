@@ -62,14 +62,35 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def compute_overall_status(router_status: str | None, pc_status: str | None, last_seen: datetime | None) -> str:
+    if (router_status or "").lower() == "down":
+        return "down"
+    if (pc_status or "").lower() == "down":
+        return "down"
+    if last_seen is None:
+        return "down"
+    age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
+    if age_seconds > settings.heartbeat_timeout_seconds:
+        return "down"
+    return "ok"
+
+
 @app.post("/ingest")
 async def ingest(report: AgentReport) -> dict[str, str]:
     await store_report(settings.database_path, report)
 
     previous = runtime.sites.get(report.site_id)
     target = runtime.targets.get(report.site_id)
+    router_status = previous.router_status if previous else None
+    pc_status = previous.pc_status if previous else None
 
-    if previous is None:
+    # Compute new overall status using report.timestamp as the fresh last_seen
+    new_status = compute_overall_status(router_status, pc_status, report.timestamp)
+    
+    is_first_report = previous is None or previous.last_seen is None
+    recovered_now = bool(not is_first_report and previous.status == "down" and new_status == "ok")
+
+    if is_first_report:
         await raise_alert(
             report.site_name,
             report.site_id,
@@ -82,23 +103,23 @@ async def ingest(report: AgentReport) -> dict[str, str]:
     runtime.sites[report.site_id] = SiteState(
         site_name=report.site_name,
         site_id=report.site_id,
-        status=report.status,
+        status=new_status,
         router_ip=target.router_ip if target else (previous.router_ip if previous else None),
         pc_ip=target.pc_ip if target else (previous.pc_ip if previous else None),
-        router_status=previous.router_status if previous else None,
-        pc_status=previous.pc_status if previous else None,
+        router_status=router_status,
+        pc_status=pc_status,
         last_probe_at=previous.last_probe_at if previous else None,
         last_seen=report.timestamp,
         last_report=report,
     )
 
-    if previous and previous.status == "down" and report.status != "down":
+    if recovered_now:
         await raise_alert(
             report.site_name,
             report.site_id,
             "site",
             "recovered",
-            "site reported back online",
+            "agent reported back online",
             latest_file=report.latest_file,
             latest_disk_usage=report.latest_disk_usage,
         )
@@ -162,6 +183,11 @@ async def probe_sites_once() -> None:
         if previous is None:
             previous = SiteState(site_name=target.site_name, site_id=site_id, status="ok")
 
+        heartbeat_alive = False
+        if previous.last_seen is not None:
+            heartbeat_age = (datetime.now(timezone.utc) - previous.last_seen).total_seconds()
+            heartbeat_alive = heartbeat_age <= settings.heartbeat_timeout_seconds
+
         router_up = probe_host(target.router_ip)
         previous_router_status = previous.router_status or "unknown"
         router_status = "ok" if router_up else "down"
@@ -174,10 +200,14 @@ async def probe_sites_once() -> None:
         elif not router_up:
             pc_status = "unknown"
 
+        # Evaluate total site status and possible recovery
+        new_status = compute_overall_status(router_status, pc_status, previous.last_seen)
+        recovered_now = bool(previous.status == "down" and new_status == "ok")
+
         updated_state = SiteState(
             site_name=target.site_name,
             site_id=site_id,
-            status="down" if router_status == "down" or pc_status == "down" else previous.status,
+            status=new_status,
             router_ip=target.router_ip,
             pc_ip=target.pc_ip,
             router_status=router_status,
@@ -187,6 +217,17 @@ async def probe_sites_once() -> None:
             last_report=previous.last_report,
         )
         runtime.sites[site_id] = updated_state
+
+        if recovered_now:
+            await raise_alert(
+                target.site_name,
+                site_id,
+                "site",
+                "recovered",
+                "site is healthy again",
+                latest_file=previous.last_report.latest_file if previous.last_report else None,
+                latest_disk_usage=previous.last_report.latest_disk_usage if previous.last_report else None,
+            )
 
         if previous_router_status != router_status:
             if router_status == "down":
