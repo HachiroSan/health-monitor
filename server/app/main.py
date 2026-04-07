@@ -83,7 +83,6 @@ def compute_overall_status(router_status: str | None, pc_status: str | None, las
 
 @app.post("/ingest")
 async def ingest(report: AgentReport) -> dict[str, str]:
-    logger.debug("Received ingest report from %s (status: %s)", report.site_id, report.status)
     await store_report(settings.database_path, report)
 
     previous = runtime.sites.get(report.site_id)
