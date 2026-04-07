@@ -105,6 +105,7 @@ async def ingest(report: AgentReport) -> dict[str, str]:
             "started",
             "agent started reporting",
             latest_file=report.latest_file,
+            latest_disk_usage=report.latest_disk_usage,
         )
 
     runtime.sites[report.site_id] = SiteState(
