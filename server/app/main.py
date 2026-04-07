@@ -105,6 +105,6 @@ async def raise_alert(site_name: str, site_id: str, status: str, message: str) -
     await store_alert(settings.database_path, alert)
 
     try:
-        await runtime.notifier.send(f"[{site_name}] {status}: {message}")
+        await runtime.notifier.send(TelegramNotifier.format_alert(alert))
     except Exception:
         pass
