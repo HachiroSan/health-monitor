@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time as dt_time, timedelta, timezone
@@ -16,11 +15,6 @@ from .models import AgentReport, AlertItem, SiteState
 from .site_targets import SiteTarget, load_site_targets, probe_host
 from .settings import settings
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.debug_logging else logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger("health_monitor")
 
 @dataclass
 class RuntimeState:
@@ -83,7 +77,6 @@ def compute_overall_status(router_status: str | None, pc_status: str | None, las
 
 @app.post("/ingest")
 async def ingest(report: AgentReport) -> dict[str, str]:
-    logger.debug("Received ingest report from %s (status: %s)", report.site_id, report.status)
     await store_report(settings.database_path, report)
 
     previous = runtime.sites.get(report.site_id)
@@ -98,7 +91,6 @@ async def ingest(report: AgentReport) -> dict[str, str]:
     recovered_now = bool(not is_first_report and previous.status == "down" and new_status == "ok")
 
     if is_first_report:
-        logger.info("Agent started reporting for site %s for the first time", report.site_id)
         await raise_alert(
             report.site_name,
             report.site_id,
@@ -122,7 +114,6 @@ async def ingest(report: AgentReport) -> dict[str, str]:
     )
 
     if recovered_now:
-        logger.info("Site %s recovered via ingest heartbeat (status changed from down to ok)", report.site_id)
         await raise_alert(
             report.site_name,
             report.site_id,
@@ -155,7 +146,6 @@ async def watchdog_loop() -> None:
 
             age = (now - site.last_seen).total_seconds()
             if age > settings.heartbeat_timeout_seconds and site.status != "down":
-                logger.warning("Watchdog triggered site down for %s: missing for %.1fs", site_id, age)
                 runtime.sites[site_id] = SiteState(
                     site_name=site.site_name,
                     site_id=site_id,
@@ -229,7 +219,6 @@ async def probe_sites_once() -> None:
         runtime.sites[site_id] = updated_state
 
         if recovered_now:
-            logger.info("Site %s computed as fully recovered during probe cycle", site_id)
             await raise_alert(
                 target.site_name,
                 site_id,
@@ -242,7 +231,6 @@ async def probe_sites_once() -> None:
 
         if previous_router_status != router_status:
             if router_status == "down":
-                logger.warning("Router down for site %s: %s", site_id, target.router_ip)
                 await raise_alert(
                     target.site_name,
                     site_id,
@@ -251,7 +239,6 @@ async def probe_sites_once() -> None:
                     f"router unreachable: {target.router_ip or 'unknown'}",
                 )
             elif previous_router_status == "down" and router_status == "ok":
-                logger.info("Router recovered for site %s: %s", site_id, target.router_ip)
                 await raise_alert(
                     target.site_name,
                     site_id,
@@ -263,7 +250,6 @@ async def probe_sites_once() -> None:
         previous_pc_status = previous.pc_status or "unknown"
         if router_up and previous_pc_status != pc_status and target.pc_ip:
             if pc_status == "down":
-                logger.warning("PC down for site %s: %s", site_id, target.pc_ip)
                 await raise_alert(
                     target.site_name,
                     site_id,
@@ -272,7 +258,6 @@ async def probe_sites_once() -> None:
                     f"pc unreachable: {target.pc_ip}",
                 )
             elif previous_pc_status == "down" and pc_status == "ok":
-                logger.info("PC recovered for site %s: %s", site_id, target.pc_ip)
                 await raise_alert(
                     target.site_name,
                     site_id,
@@ -325,9 +310,8 @@ async def send_daily_summary() -> None:
     )
     try:
         await runtime.notifier.send(summary)
-        logger.info("Sent daily summary")
-    except Exception as e:
-        logger.error("Failed to send daily summary: %s", e)
+    except Exception:
+        pass
 
 
 def parse_daily_summary_time(value: str) -> dt_time:
@@ -371,8 +355,8 @@ async def raise_alert(
 
     try:
         await runtime.notifier.send(TelegramNotifier.format_alert(alert))
-    except Exception as e:
-        logger.error("Failed to send Telegram alert for %s: %s", site_id, e)
+    except Exception:
+        pass
 
 
 def main() -> None:
@@ -386,3 +370,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

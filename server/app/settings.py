@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     heartbeat_poll_seconds: int = 5
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    debug_logging: bool = True
 
 
 settings = Settings()
