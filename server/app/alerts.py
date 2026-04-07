@@ -35,6 +35,9 @@ class TelegramNotifier:
         if alert.latest_file:
             lines.append(f"Latest file: {alert.latest_file}")
 
+        if alert.latest_disk_usage:
+            lines.append(f"Disk usage: {alert.latest_disk_usage}")
+
         if alert.component.lower() == "router" and alert.status.lower() == "down":
             lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
 
@@ -68,6 +71,7 @@ class TelegramNotifier:
             emoji = "🔴" if site.status.lower() == "down" else "🟢"
             last_seen = site.last_seen.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if site.last_seen else "n/a"
             latest_file = site.last_report.latest_file if site.last_report and site.last_report.latest_file else ""
+            latest_disk_usage = site.last_report.latest_disk_usage if site.last_report and site.last_report.latest_disk_usage else ""
             status_label = site.status.replace("_", " ").upper()
             site_alerts = []
             lines.extend(
@@ -80,6 +84,9 @@ class TelegramNotifier:
 
             if latest_file:
                 lines.append(f"Latest file: {latest_file}")
+
+            if latest_disk_usage:
+                lines.append(f"Disk usage: {latest_disk_usage}")
 
             if index != len(ordered_sites) - 1:
                 lines.append("")
@@ -119,6 +126,7 @@ class TelegramNotifier:
             emoji = "🔴" if site.status.lower() == "down" else "🟢"
             last_seen = site.last_seen.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC") if site.last_seen else "n/a"
             latest_file = site.last_report.latest_file if site.last_report and site.last_report.latest_file else ""
+            latest_disk_usage = site.last_report.latest_disk_usage if site.last_report and site.last_report.latest_disk_usage else ""
             site_alerts = alerts_by_site.get(site.site_id, [])
 
             primary_alert = TelegramNotifier._pick_primary_component_alert(site_alerts)
@@ -145,6 +153,9 @@ class TelegramNotifier:
 
             if latest_file:
                 lines.append(f"Latest file: {latest_file}")
+
+            if latest_disk_usage:
+                lines.append(f"Disk usage: {latest_disk_usage}")
 
             if index != len(ordered_sites) - 1:
                 lines.append("")

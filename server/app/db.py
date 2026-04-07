@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS site_reports (
     timestamp TEXT NOT NULL,
     status TEXT NOT NULL,
     latest_file TEXT NOT NULL DEFAULT '',
+    latest_disk_usage TEXT NOT NULL DEFAULT '',
     payload TEXT NOT NULL
 );
 
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     message TEXT NOT NULL,
     checks TEXT NOT NULL DEFAULT '[]',
     latest_file TEXT NOT NULL DEFAULT '',
+    latest_disk_usage TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 """
@@ -49,11 +51,17 @@ async def initialize_database(database_path: str) -> None:
         if "latest_file" not in columns:
             await connection.execute("ALTER TABLE alerts ADD COLUMN latest_file TEXT NOT NULL DEFAULT ''")
 
+        if "latest_disk_usage" not in columns:
+            await connection.execute("ALTER TABLE alerts ADD COLUMN latest_disk_usage TEXT NOT NULL DEFAULT ''")
+
         async with connection.execute("PRAGMA table_info(site_reports)") as cursor:
             report_columns = {row[1] for row in await cursor.fetchall()}
 
         if "latest_file" not in report_columns:
             await connection.execute("ALTER TABLE site_reports ADD COLUMN latest_file TEXT NOT NULL DEFAULT ''")
+
+        if "latest_disk_usage" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN latest_disk_usage TEXT NOT NULL DEFAULT ''")
 
         await connection.commit()
 
@@ -61,13 +69,14 @@ async def initialize_database(database_path: str) -> None:
 async def store_report(database_path: str, report: AgentReport) -> None:
     async with aiosqlite.connect(database_path) as connection:
         await connection.execute(
-            "INSERT INTO site_reports (site_name, site_id, timestamp, status, latest_file, payload) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO site_reports (site_name, site_id, timestamp, status, latest_file, latest_disk_usage, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 report.site_name,
                 report.site_id,
                 report.timestamp.isoformat(),
                 report.status,
                 report.latest_file or "",
+                report.latest_disk_usage or "",
                 report.model_dump_json(),
             ),
         )
@@ -77,7 +86,7 @@ async def store_report(database_path: str, report: AgentReport) -> None:
 async def store_alert(database_path: str, alert: AlertItem) -> None:
     async with aiosqlite.connect(database_path) as connection:
         await connection.execute(
-            "INSERT INTO alerts (site_name, site_id, component, status, message, checks, latest_file, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO alerts (site_name, site_id, component, status, message, checks, latest_file, latest_disk_usage, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 alert.site_name,
                 alert.site_id,
@@ -86,6 +95,7 @@ async def store_alert(database_path: str, alert: AlertItem) -> None:
                 alert.message,
                 json.dumps(alert.checks),
                 alert.latest_file or "",
+                alert.latest_disk_usage or "",
                 alert.created_at.isoformat(),
             ),
         )

@@ -11,6 +11,7 @@ class AgentReport(BaseModel):
     router_ip: str | None = None
     router_status: str | None = None
     latest_file: str | None = None
+    latest_disk_usage: str | None = None
 
 
 class SiteState(BaseModel):
@@ -29,4 +30,5 @@ class AlertItem(BaseModel):
     message: str
     checks: list[str] = Field(default_factory=list)
     latest_file: str | None = None
+    latest_disk_usage: str | None = None
     created_at: datetime

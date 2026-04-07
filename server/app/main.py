@@ -107,6 +107,7 @@ async def ingest(report: AgentReport) -> dict[str, str]:
             "recovered",
             "site reported back online",
             latest_file=report.latest_file,
+            latest_disk_usage=report.latest_disk_usage,
         )
 
     return {"status": "accepted"}
@@ -145,6 +146,7 @@ async def watchdog_loop() -> None:
                     "down",
                     f"site has not reported for {int(age)} seconds",
                     latest_file=site.last_report.latest_file if site.last_report else None,
+                    latest_disk_usage=site.last_report.latest_disk_usage if site.last_report else None,
                 )
 
         await asyncio.sleep(settings.heartbeat_poll_seconds)
@@ -219,6 +221,7 @@ async def raise_alert(
     message: str,
     checks: list[str] | None = None,
     latest_file: str | None = None,
+    latest_disk_usage: str | None = None,
 ) -> None:
     alert = AlertItem(
         site_name=site_name,
@@ -228,6 +231,7 @@ async def raise_alert(
         message=message,
         checks=checks or [],
         latest_file=latest_file,
+        latest_disk_usage=latest_disk_usage,
         created_at=datetime.now(timezone.utc),
     )
     await store_alert(settings.database_path, alert)
