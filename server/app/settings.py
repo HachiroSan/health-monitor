@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     server_port: int = 8000
     daily_summary_timezone: str = "UTC"
     daily_summary_time: str = "18:00"
-    heartbeat_timeout_seconds: int = 30
+    heartbeat_timeout_seconds: int = 90
     heartbeat_poll_seconds: int = 5
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

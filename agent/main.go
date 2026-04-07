@@ -20,7 +20,7 @@ import (
 
 var getDiskFreeSpaceExW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetDiskFreeSpaceExW")
 
-const heartbeatInterval = 15 * time.Second
+const heartbeatInterval = 30 * time.Second
 
 type Report struct {
 	SiteName        string    `json:"site_name"`
