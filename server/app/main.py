@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 import uvicorn
 
 from .alerts import TelegramNotifier
-from .db import initialize_database, store_alert, store_report
+from .db import fetch_alerts_since, initialize_database, store_alert, store_report
 from .models import AgentReport, AlertItem, SiteState
 from .settings import settings
 
@@ -18,21 +19,28 @@ from .settings import settings
 class RuntimeState:
     sites: dict[str, SiteState]
     notifier: TelegramNotifier
+    summary_sent_date: date | None
 
 
-runtime = RuntimeState(sites={}, notifier=TelegramNotifier())
+runtime = RuntimeState(sites={}, notifier=TelegramNotifier(), summary_sent_date=None)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_database(settings.database_path)
     watchdog = asyncio.create_task(watchdog_loop())
+    summary = asyncio.create_task(daily_summary_loop())
     try:
         yield
     finally:
         watchdog.cancel()
+        summary.cancel()
         try:
             await watchdog
+        except asyncio.CancelledError:
+            pass
+        try:
+            await summary
         except asyncio.CancelledError:
             pass
 
@@ -107,6 +115,67 @@ async def watchdog_loop() -> None:
                 )
 
         await asyncio.sleep(settings.heartbeat_poll_seconds)
+
+
+async def daily_summary_loop() -> None:
+    summary_time = parse_daily_summary_time(settings.daily_summary_time)
+    summary_tz = load_summary_timezone()
+
+    while True:
+        now_utc = datetime.now(timezone.utc)
+        now_local = now_utc.astimezone(summary_tz)
+        target_local = now_local.replace(
+            hour=summary_time.hour,
+            minute=summary_time.minute,
+            second=0,
+            microsecond=0,
+        )
+
+        if now_local >= target_local:
+            target_local = target_local + timedelta(days=1)
+
+        sleep_seconds = max(1, int((target_local.astimezone(timezone.utc) - now_utc).total_seconds()))
+        await asyncio.sleep(sleep_seconds)
+
+        current_date = datetime.now(summary_tz).date()
+        if runtime.summary_sent_date == current_date:
+            continue
+
+        await send_daily_summary()
+        runtime.summary_sent_date = current_date
+
+
+async def send_daily_summary() -> None:
+    summary_tz = summary_timezone()
+    now = datetime.now(summary_tz)
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    alerts = await fetch_alerts_since(settings.database_path, start_of_day.astimezone(timezone.utc))
+    summary = TelegramNotifier.format_daily_summary_with_alerts(
+        list(runtime.sites.values()),
+        alerts,
+        now,
+        settings.daily_summary_timezone,
+    )
+    try:
+        await runtime.notifier.send(summary)
+    except Exception:
+        pass
+
+
+def parse_daily_summary_time(value: str) -> dt_time:
+    hour_str, minute_str = value.split(":", maxsplit=1)
+    return dt_time(hour=int(hour_str), minute=int(minute_str))
+
+
+def load_summary_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo(settings.daily_summary_timezone)
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def summary_timezone() -> ZoneInfo:
+    return load_summary_timezone()
 
 
 async def raise_alert(

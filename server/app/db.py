@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import aiosqlite
 
@@ -89,3 +90,35 @@ async def store_alert(database_path: str, alert: AlertItem) -> None:
             ),
         )
         await connection.commit()
+
+
+async def fetch_alerts_since(database_path: str, since: datetime) -> list[AlertItem]:
+    async with aiosqlite.connect(database_path) as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            """
+            SELECT site_name, site_id, component, status, message, checks, latest_file, created_at
+            FROM alerts
+            WHERE created_at >= ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (since.isoformat(),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+    alerts: list[AlertItem] = []
+    for row in rows:
+        alerts.append(
+            AlertItem(
+                site_name=row["site_name"],
+                site_id=row["site_id"],
+                component=row["component"],
+                status=row["status"],
+                message=row["message"],
+                checks=json.loads(row["checks"] or "[]"),
+                latest_file=row["latest_file"] or None,
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+        )
+
+    return alerts

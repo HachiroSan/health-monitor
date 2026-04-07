@@ -27,3 +27,12 @@ If you want a custom port, set `SERVER_PORT` and run the server with:
 python -m app.main
 ```
 
+## Daily summary
+
+The server can send a daily Telegram summary at a fixed local time using:
+
+- `DAILY_SUMMARY_TIME` like `18:00`
+- `DAILY_SUMMARY_TIMEZONE` like `Asia/Kuala_Lumpur`
+
+The summary uses the configured timezone name, not a GMT offset.
+
