@@ -15,7 +15,7 @@ This repository is split into two top-level parts:
 1. Add a Windows service installer for the agent.
 2. Add a systemd unit and deployment script for the server.
 3. Wire in Telegram bot credentials and site configuration.
-4. Keep the agent config minimal: `site_name`, `site_id`, `server_ip`, and optional empty `auth_token`.
+4. Keep the agent config minimal: `site_name`, `site_id`, `server_ip` (host or host:port), and optional empty `auth_token`.
 
 ## Server port
 

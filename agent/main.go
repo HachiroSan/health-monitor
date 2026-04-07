@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -62,7 +63,7 @@ func sendReport(cfg Config, client *http.Client, report Report) error {
 		return fmt.Errorf("marshal report: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("http://%s:8000/ingest", cfg.ServerIP)
+	endpoint := fmt.Sprintf("http://%s/ingest", strings.TrimSpace(cfg.ServerIP))
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
