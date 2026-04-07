@@ -187,7 +187,7 @@ async def site_probe_loop() -> None:
 
 
 async def probe_sites_once() -> None:
-    for site_id, target in runtime.targets.items():
+    async def check_site(site_id: str, target: SiteTarget) -> None:
         previous = runtime.sites.get(site_id)
         if previous is None:
             previous = SiteState(site_name=target.site_name, site_id=site_id, status="ok")
@@ -197,14 +197,14 @@ async def probe_sites_once() -> None:
             heartbeat_age = (datetime.now(timezone.utc) - previous.last_seen).total_seconds()
             heartbeat_alive = heartbeat_age <= settings.heartbeat_timeout_seconds
 
-        router_up = probe_host(target.router_ip)
+        router_up = await probe_host(target.router_ip)
         previous_router_status = previous.router_status or "unknown"
         router_status = "ok" if router_up else "down"
 
         pc_status = previous.pc_status or "unknown"
         pc_up = False
         if router_up and target.pc_ip:
-            pc_up = probe_host(target.pc_ip)
+            pc_up = await probe_host(target.pc_ip)
             pc_status = "ok" if pc_up else "down"
         elif not router_up:
             pc_status = "unknown"
@@ -279,6 +279,10 @@ async def probe_sites_once() -> None:
                     "recovered",
                     f"pc reachable again: {target.pc_ip}",
                 )
+
+    tasks = [check_site(site_id, target) for site_id, target in runtime.targets.items()]
+    if tasks:
+        await asyncio.gather(*tasks)
 
 
 

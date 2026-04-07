@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import platform
 import subprocess
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def load_site_targets(path: str) -> dict[str, SiteTarget]:
     return targets
 
 
-def probe_host(host: str | None) -> bool:
+async def probe_host(host: str | None) -> bool:
     host = _clean_optional(host)
     if not host:
         return False
@@ -50,8 +51,20 @@ def probe_host(host: str | None) -> bool:
         command = ["ping", "-n", "1", "-w", "1000", host]
 
     try:
-        completed = subprocess.run(command, capture_output=True, timeout=5, check=False)
-        return completed.returncode == 0
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5.0)
+            return process.returncode == 0
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            return False
     except Exception:
         return False
 
