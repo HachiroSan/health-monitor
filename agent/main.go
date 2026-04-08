@@ -9,7 +9,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,12 +25,37 @@ var getDiskFreeSpaceExW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetDiskFre
 const heartbeatInterval = 30 * time.Second
 
 type Report struct {
-	SiteName        string    `json:"site_name"`
-	SiteID          string    `json:"site_id"`
-	Timestamp       time.Time `json:"timestamp"`
-	Status          string    `json:"status"`
-	LatestFile      string    `json:"latest_file,omitempty"`
-	LatestDiskUsage string    `json:"latest_disk_usage,omitempty"`
+	SiteName         string    `json:"site_name"`
+	SiteID           string    `json:"site_id"`
+	Timestamp        time.Time `json:"timestamp"`
+	Status           string    `json:"status"`
+	LatestFile       string    `json:"latest_file,omitempty"`
+	LatestDiskUsage  string    `json:"latest_disk_usage,omitempty"`
+	CpuName          string    `json:"cpu_name,omitempty"`
+	CpuCores         int       `json:"cpu_cores,omitempty"`
+	RamTotalMB       int64     `json:"ram_total_mb,omitempty"`
+	RamAvailableMB   int64     `json:"ram_available_mb,omitempty"`
+	WindowsCaption   string    `json:"windows_caption,omitempty"`
+	WindowsVersion   string    `json:"windows_version,omitempty"`
+	WindowsBuild     string    `json:"windows_build,omitempty"`
+	GpuName          string    `json:"gpu_name,omitempty"`
+	GpuDriverVersion string    `json:"gpu_driver_version,omitempty"`
+	Motherboard      string    `json:"motherboard,omitempty"`
+	BiosVersion      string    `json:"bios_version,omitempty"`
+}
+
+type machineTelemetry struct {
+	CpuName          string `json:"cpu_name,omitempty"`
+	CpuCores         int    `json:"cpu_cores,omitempty"`
+	RamTotalMB       int64  `json:"ram_total_mb,omitempty"`
+	RamAvailableMB   int64  `json:"ram_available_mb,omitempty"`
+	WindowsCaption   string `json:"windows_caption,omitempty"`
+	WindowsVersion   string `json:"windows_version,omitempty"`
+	WindowsBuild     string `json:"windows_build,omitempty"`
+	GpuName          string `json:"gpu_name,omitempty"`
+	GpuDriverVersion string `json:"gpu_driver_version,omitempty"`
+	Motherboard      string `json:"motherboard,omitempty"`
+	BiosVersion      string `json:"bios_version,omitempty"`
 }
 
 func main() {
@@ -40,25 +67,27 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	inventory := collectMachineTelemetry()
+
 	client := &http.Client{Timeout: 15 * time.Second}
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
 	log.Printf("agent starting for site %s (%s)", cfg.SiteName, cfg.SiteID)
 	for {
-		if err := runOnce(cfg, client); err != nil {
+		if err := runOnce(cfg, client, inventory); err != nil {
 			log.Printf("report failed: %v", err)
 		}
 		<-ticker.C
 	}
 }
 
-func runOnce(cfg Config, client *http.Client) error {
-	report := buildReport(cfg)
+func runOnce(cfg Config, client *http.Client, inventory machineTelemetry) error {
+	report := buildReport(cfg, inventory)
 	return sendReport(cfg, client, report)
 }
 
-func buildReport(cfg Config) Report {
+func buildReport(cfg Config, inventory machineTelemetry) Report {
 	latestFile := latestTxtFile(cfg.LatestFileFolder)
 	latestDiskUsage := ""
 	if strings.TrimSpace(cfg.LatestFileFolder) != "" {
@@ -66,13 +95,69 @@ func buildReport(cfg Config) Report {
 	}
 
 	return Report{
-		SiteName:        cfg.SiteName,
-		SiteID:          cfg.SiteID,
-		Timestamp:       time.Now().UTC(),
-		Status:          "ok",
-		LatestFile:      latestFile,
-		LatestDiskUsage: latestDiskUsage,
+		SiteName:         cfg.SiteName,
+		SiteID:           cfg.SiteID,
+		Timestamp:        time.Now().UTC(),
+		Status:           "ok",
+		LatestFile:       latestFile,
+		LatestDiskUsage:  latestDiskUsage,
+		CpuName:          inventory.CpuName,
+		CpuCores:         inventory.CpuCores,
+		RamTotalMB:       inventory.RamTotalMB,
+		RamAvailableMB:   inventory.RamAvailableMB,
+		WindowsCaption:   inventory.WindowsCaption,
+		WindowsVersion:   inventory.WindowsVersion,
+		WindowsBuild:     inventory.WindowsBuild,
+		GpuName:          inventory.GpuName,
+		GpuDriverVersion: inventory.GpuDriverVersion,
+		Motherboard:      inventory.Motherboard,
+		BiosVersion:      inventory.BiosVersion,
 	}
+}
+
+func collectMachineTelemetry() machineTelemetry {
+	if runtime.GOOS != "windows" {
+		return machineTelemetry{}
+	}
+
+	output, err := runPowerShellTelemetryScript()
+	if err != nil {
+		log.Printf("machine telemetry scan failed: %v", err)
+		return machineTelemetry{}
+	}
+
+	var telemetry machineTelemetry
+	if err := json.Unmarshal(output, &telemetry); err != nil {
+		log.Printf("machine telemetry decode failed: %v", err)
+		return machineTelemetry{}
+	}
+
+	return telemetry
+}
+
+func runPowerShellTelemetryScript() ([]byte, error) {
+	script := `$cpu = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1 Name, NumberOfCores
+$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue | Select-Object -First 1 Caption, Version, BuildNumber, TotalVisibleMemorySize, FreePhysicalMemory
+$gpu = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name } | Select-Object -First 1 Name, DriverVersion
+$board = Get-CimInstance Win32_BaseBoard -ErrorAction SilentlyContinue | Select-Object -First 1 Manufacturer, Product
+$bios = Get-CimInstance Win32_BIOS -ErrorAction SilentlyContinue | Select-Object -First 1 SMBIOSBIOSVersion
+$motherboard = @($board.Manufacturer, $board.Product) | Where-Object { $_ } | ForEach-Object { $_.Trim() }
+[pscustomobject]@{
+    cpu_name = $cpu.Name
+    cpu_cores = [int]$cpu.NumberOfCores
+    ram_total_mb = if ($os.TotalVisibleMemorySize) { [int64][math]::Round($os.TotalVisibleMemorySize / 1024) } else { $null }
+    ram_available_mb = if ($os.FreePhysicalMemory) { [int64][math]::Round($os.FreePhysicalMemory / 1024) } else { $null }
+    windows_caption = $os.Caption
+    windows_version = $os.Version
+    windows_build = $os.BuildNumber
+    gpu_name = $gpu.Name
+    gpu_driver_version = $gpu.DriverVersion
+    motherboard = ($motherboard -join ' ')
+    bios_version = $bios.SMBIOSBIOSVersion
+} | ConvertTo-Json -Compress`
+
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
+	return cmd.Output()
 }
 
 func latestTxtFile(folder string) string {

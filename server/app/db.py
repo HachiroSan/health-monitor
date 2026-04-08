@@ -17,6 +17,17 @@ CREATE TABLE IF NOT EXISTS site_reports (
     status TEXT NOT NULL,
     latest_file TEXT NOT NULL DEFAULT '',
     latest_disk_usage TEXT NOT NULL DEFAULT '',
+    cpu_name TEXT NOT NULL DEFAULT '',
+    cpu_cores INTEGER NOT NULL DEFAULT 0,
+    ram_total_mb INTEGER NOT NULL DEFAULT 0,
+    ram_available_mb INTEGER NOT NULL DEFAULT 0,
+    windows_caption TEXT NOT NULL DEFAULT '',
+    windows_version TEXT NOT NULL DEFAULT '',
+    windows_build TEXT NOT NULL DEFAULT '',
+    gpu_name TEXT NOT NULL DEFAULT '',
+    gpu_driver_version TEXT NOT NULL DEFAULT '',
+    motherboard TEXT NOT NULL DEFAULT '',
+    bios_version TEXT NOT NULL DEFAULT '',
     payload TEXT NOT NULL
 );
 
@@ -63,13 +74,46 @@ async def initialize_database(database_path: str) -> None:
         if "latest_disk_usage" not in report_columns:
             await connection.execute("ALTER TABLE site_reports ADD COLUMN latest_disk_usage TEXT NOT NULL DEFAULT ''")
 
+        if "cpu_name" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN cpu_name TEXT NOT NULL DEFAULT ''")
+
+        if "cpu_cores" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN cpu_cores INTEGER NOT NULL DEFAULT 0")
+
+        if "ram_total_mb" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN ram_total_mb INTEGER NOT NULL DEFAULT 0")
+
+        if "ram_available_mb" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN ram_available_mb INTEGER NOT NULL DEFAULT 0")
+
+        if "windows_caption" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN windows_caption TEXT NOT NULL DEFAULT ''")
+
+        if "windows_version" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN windows_version TEXT NOT NULL DEFAULT ''")
+
+        if "windows_build" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN windows_build TEXT NOT NULL DEFAULT ''")
+
+        if "gpu_name" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN gpu_name TEXT NOT NULL DEFAULT ''")
+
+        if "gpu_driver_version" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN gpu_driver_version TEXT NOT NULL DEFAULT ''")
+
+        if "motherboard" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN motherboard TEXT NOT NULL DEFAULT ''")
+
+        if "bios_version" not in report_columns:
+            await connection.execute("ALTER TABLE site_reports ADD COLUMN bios_version TEXT NOT NULL DEFAULT ''")
+
         await connection.commit()
 
 
 async def store_report(database_path: str, report: AgentReport) -> None:
     async with aiosqlite.connect(database_path) as connection:
         await connection.execute(
-            "INSERT INTO site_reports (site_name, site_id, timestamp, status, latest_file, latest_disk_usage, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO site_reports (site_name, site_id, timestamp, status, latest_file, latest_disk_usage, cpu_name, cpu_cores, ram_total_mb, ram_available_mb, windows_caption, windows_version, windows_build, gpu_name, gpu_driver_version, motherboard, bios_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 report.site_name,
                 report.site_id,
@@ -77,6 +121,17 @@ async def store_report(database_path: str, report: AgentReport) -> None:
                 report.status,
                 report.latest_file or "",
                 report.latest_disk_usage or "",
+                report.cpu_name or "",
+                report.cpu_cores or 0,
+                report.ram_total_mb or 0,
+                report.ram_available_mb or 0,
+                report.windows_caption or "",
+                report.windows_version or "",
+                report.windows_build or "",
+                report.gpu_name or "",
+                report.gpu_driver_version or "",
+                report.motherboard or "",
+                report.bios_version or "",
                 report.model_dump_json(),
             ),
         )

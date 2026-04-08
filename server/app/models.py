@@ -12,6 +12,17 @@ class AgentReport(BaseModel):
     router_status: str | None = None
     latest_file: str | None = None
     latest_disk_usage: str | None = None
+    cpu_name: str | None = None
+    cpu_cores: int | None = None
+    ram_total_mb: int | None = None
+    ram_available_mb: int | None = None
+    windows_caption: str | None = None
+    windows_version: str | None = None
+    windows_build: str | None = None
+    gpu_name: str | None = None
+    gpu_driver_version: str | None = None
+    motherboard: str | None = None
+    bios_version: str | None = None
 
 
 class SiteState(BaseModel):
