@@ -199,7 +199,7 @@ async def watchdog_loop() -> None:
                     site_id,
                     "site",
                     "down",
-                    f"site has not reported for {int(age)} seconds",
+                    f"agent has not reported for {int(age)} seconds",
                     latest_file=site.last_report.latest_file if site.last_report else None,
                     latest_disk_usage=site.last_report.latest_disk_usage if site.last_report else None,
                 )
