@@ -38,20 +38,14 @@ async def lifespan(app: FastAPI):
     await initialize_database(settings.database_path)
     runtime.targets = load_site_targets(settings.sites_config_path)
     watchdog = asyncio.create_task(watchdog_loop())
-    probes = asyncio.create_task(site_probe_loop())
     summary = asyncio.create_task(daily_summary_loop())
     try:
         yield
     finally:
         watchdog.cancel()
-        probes.cancel()
         summary.cancel()
         try:
             await watchdog
-        except asyncio.CancelledError:
-            pass
-        try:
-            await probes
         except asyncio.CancelledError:
             pass
         try:
@@ -68,11 +62,7 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def compute_overall_status(router_status: str | None, pc_status: str | None, last_seen: datetime | None) -> str:
-    if (router_status or "").lower() == "down":
-        return "down"
-    if (pc_status or "").lower() == "down":
-        return "down"
+def compute_overall_status(last_seen: datetime | None) -> str:
     if last_seen is None:
         return "down"
     age_seconds = (datetime.now(timezone.utc) - last_seen).total_seconds()
@@ -87,11 +77,11 @@ async def ingest(report: AgentReport) -> dict[str, str]:
 
     previous = runtime.sites.get(report.site_id)
     target = runtime.targets.get(report.site_id)
-    router_status = previous.router_status if previous else None
-    pc_status = previous.pc_status if previous else None
+    router_status = "ok"
+    pc_status = "ok"
 
     # Compute new overall status using report.timestamp as the fresh last_seen
-    new_status = compute_overall_status(router_status, pc_status, report.timestamp)
+    new_status = compute_overall_status(report.timestamp)
     
     is_first_report = previous is None or previous.last_seen is None
     recovered_now = bool(not is_first_report and previous.status == "down" and new_status == "ok")
@@ -123,6 +113,25 @@ async def ingest(report: AgentReport) -> dict[str, str]:
 
     if recovered_now:
         logger.info("Site %s recovered via ingest heartbeat (status changed from down to ok)", report.site_id)
+        if previous and previous.router_status == "down":
+             logger.info("Router recovered for site %s via heartbeat", report.site_id)
+             await raise_alert(
+                 report.site_name,
+                 report.site_id,
+                 "router",
+                 "recovered",
+                 f"router reachable again (via heartbeat)"
+             )
+        if previous and previous.pc_status == "down":
+             logger.info("PC recovered for site %s via heartbeat", report.site_id)
+             await raise_alert(
+                 report.site_name,
+                 report.site_id,
+                 "pc",
+                 "recovered",
+                 f"pc reachable again (via heartbeat)"
+             )
+
         await raise_alert(
             report.site_name,
             report.site_id,
@@ -156,18 +165,35 @@ async def watchdog_loop() -> None:
             age = (now - site.last_seen).total_seconds()
             if age > settings.heartbeat_timeout_seconds and site.status != "down":
                 logger.warning("Watchdog triggered site down for %s: missing for %.1fs", site_id, age)
+                
+                target = runtime.targets.get(site_id)
+                router_ip = target.router_ip if target else site.router_ip
+                pc_ip = target.pc_ip if target else site.pc_ip
+                
+                router_status = "unknown"
+                pc_status = "unknown"
+                
+                if router_ip:
+                    router_up = await probe_host(router_ip)
+                    router_status = "ok" if router_up else "down"
+                    
+                    if router_up and pc_ip:
+                        pc_up = await probe_host(pc_ip)
+                        pc_status = "ok" if pc_up else "down"
+                
                 runtime.sites[site_id] = SiteState(
                     site_name=site.site_name,
                     site_id=site_id,
                     status="down",
                     last_seen=site.last_seen,
                     last_report=site.last_report,
-                    router_ip=site.router_ip,
-                    pc_ip=site.pc_ip,
-                    router_status=site.router_status,
-                    pc_status=site.pc_status,
-                    last_probe_at=site.last_probe_at,
+                    router_ip=router_ip,
+                    pc_ip=pc_ip,
+                    router_status=router_status,
+                    pc_status=pc_status,
+                    last_probe_at=now,
                 )
+                
                 await raise_alert(
                     site.site_name,
                     site_id,
@@ -177,115 +203,28 @@ async def watchdog_loop() -> None:
                     latest_file=site.last_report.latest_file if site.last_report else None,
                     latest_disk_usage=site.last_report.latest_disk_usage if site.last_report else None,
                 )
+                
+                if router_status == "down":
+                    logger.warning("Router down for site %s: %s", site_id, router_ip)
+                    await raise_alert(
+                        site.site_name,
+                        site_id,
+                        "router",
+                        "down",
+                        f"router unreachable: {router_ip or 'unknown'}",
+                    )
+                
+                if pc_status == "down":
+                    logger.warning("PC down for site %s: %s", site_id, pc_ip)
+                    await raise_alert(
+                        site.site_name,
+                        site_id,
+                        "pc",
+                        "down",
+                        f"pc unreachable: {pc_ip}",
+                    )
 
         await asyncio.sleep(settings.heartbeat_poll_seconds)
-
-
-async def site_probe_loop() -> None:
-    while True:
-        await probe_sites_once()
-        await asyncio.sleep(settings.heartbeat_poll_seconds)
-
-
-async def probe_sites_once() -> None:
-    async def check_site(site_id: str, target: SiteTarget) -> None:
-        previous = runtime.sites.get(site_id)
-        if previous is None:
-            previous = SiteState(site_name=target.site_name, site_id=site_id, status="ok")
-
-        heartbeat_alive = False
-        if previous.last_seen is not None:
-            heartbeat_age = (datetime.now(timezone.utc) - previous.last_seen).total_seconds()
-            heartbeat_alive = heartbeat_age <= settings.heartbeat_timeout_seconds
-
-        router_up = await probe_host(target.router_ip)
-        previous_router_status = previous.router_status or "unknown"
-        router_status = "ok" if router_up else "down"
-
-        pc_status = previous.pc_status or "unknown"
-        pc_up = False
-        if router_up and target.pc_ip:
-            pc_up = await probe_host(target.pc_ip)
-            pc_status = "ok" if pc_up else "down"
-        elif not router_up:
-            pc_status = "unknown"
-
-        # Evaluate total site status and possible recovery
-        new_status = compute_overall_status(router_status, pc_status, previous.last_seen)
-        recovered_now = bool(previous.status == "down" and new_status == "ok")
-
-        updated_state = SiteState(
-            site_name=target.site_name,
-            site_id=site_id,
-            status=new_status,
-            router_ip=target.router_ip,
-            pc_ip=target.pc_ip,
-            router_status=router_status,
-            pc_status=pc_status,
-            last_probe_at=datetime.now(timezone.utc),
-            last_seen=previous.last_seen,
-            last_report=previous.last_report,
-        )
-        runtime.sites[site_id] = updated_state
-
-        if recovered_now:
-            logger.info("Site %s computed as fully recovered during probe cycle", site_id)
-            await raise_alert(
-                target.site_name,
-                site_id,
-                "site",
-                "recovered",
-                "site is healthy again",
-                latest_file=previous.last_report.latest_file if previous.last_report else None,
-                latest_disk_usage=previous.last_report.latest_disk_usage if previous.last_report else None,
-            )
-
-        if previous_router_status != router_status:
-            if router_status == "down":
-                logger.warning("Router down for site %s: %s", site_id, target.router_ip)
-                await raise_alert(
-                    target.site_name,
-                    site_id,
-                    "router",
-                    "down",
-                    f"router unreachable: {target.router_ip or 'unknown'}",
-                )
-            elif previous_router_status == "down" and router_status == "ok":
-                logger.info("Router recovered for site %s: %s", site_id, target.router_ip)
-                await raise_alert(
-                    target.site_name,
-                    site_id,
-                    "router",
-                    "recovered",
-                    f"router reachable again: {target.router_ip or 'unknown'}",
-                )
-
-        previous_pc_status = previous.pc_status or "unknown"
-        if router_up and previous_pc_status != pc_status and target.pc_ip:
-            if pc_status == "down":
-                logger.warning("PC down for site %s: %s", site_id, target.pc_ip)
-                await raise_alert(
-                    target.site_name,
-                    site_id,
-                    "pc",
-                    "down",
-                    f"pc unreachable: {target.pc_ip}",
-                )
-            elif previous_pc_status == "down" and pc_status == "ok":
-                logger.info("PC recovered for site %s: %s", site_id, target.pc_ip)
-                await raise_alert(
-                    target.site_name,
-                    site_id,
-                    "pc",
-                    "recovered",
-                    f"pc reachable again: {target.pc_ip}",
-                )
-
-    tasks = [check_site(site_id, target) for site_id, target in runtime.targets.items()]
-    if tasks:
-        await asyncio.gather(*tasks)
-
-
 
 
 async def daily_summary_loop() -> None:
