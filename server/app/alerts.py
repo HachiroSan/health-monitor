@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -46,6 +47,9 @@ class TelegramNotifier:
 
         if alert.latest_disk_usage:
             lines.append(f"Disk usage: {alert.latest_disk_usage}")
+            disk_warning = TelegramNotifier._disk_usage_warning(alert.latest_disk_usage)
+            if disk_warning:
+                lines.append(disk_warning)
 
         if alert.component.lower() == "router" and alert.status.lower() == "down":
             lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
@@ -113,6 +117,9 @@ class TelegramNotifier:
 
             if latest_disk_usage:
                 lines.append(f"Disk usage: {latest_disk_usage}")
+                disk_warning = TelegramNotifier._disk_usage_warning(latest_disk_usage)
+                if disk_warning:
+                    lines.append(disk_warning)
 
             if index != len(ordered_sites) - 1:
                 lines.append("")
@@ -152,6 +159,21 @@ class TelegramNotifier:
                 return "DOWN"
 
         return "DOWN"
+
+    @staticmethod
+    def _disk_usage_warning(disk_usage: str | None) -> str | None:
+        if not disk_usage:
+            return None
+
+        match = re.search(r"(\d+(?:\.\d+)?)\s*%", disk_usage)
+        if not match:
+            return None
+
+        usage_percent = float(match.group(1))
+        if usage_percent > 95.0:
+            return f"Warning: disk usage is above 95% ({usage_percent:.1f}%)"
+
+        return None
 
     @staticmethod
     def _component_label(component: str) -> str:
