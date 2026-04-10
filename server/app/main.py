@@ -222,6 +222,8 @@ async def watchdog_loop() -> None:
                         "pc",
                         "down",
                         f"pc unreachable: {pc_ip}",
+                        router_status=router_status,
+                        pc_status=pc_status,
                     )
 
         await asyncio.sleep(settings.heartbeat_poll_seconds)
@@ -298,6 +300,8 @@ async def raise_alert(
     checks: list[str] | None = None,
     latest_file: str | None = None,
     latest_disk_usage: str | None = None,
+    router_status: str | None = None,
+    pc_status: str | None = None,
 ) -> None:
     alert = AlertItem(
         site_name=site_name,
@@ -308,6 +312,8 @@ async def raise_alert(
         checks=checks or [],
         latest_file=latest_file,
         latest_disk_usage=latest_disk_usage,
+        router_status=router_status,
+        pc_status=pc_status,
         created_at=datetime.now(timezone.utc),
     )
     await store_alert(settings.database_path, alert)

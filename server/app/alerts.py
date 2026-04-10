@@ -10,6 +10,12 @@ from .models import AlertItem, SiteState
 from .settings import settings
 
 
+def _pc_router_note(router_status: str | None, pc_status: str | None) -> str | None:
+    if (router_status or "").lower() == "ok" and (pc_status or "").lower() == "down":
+        return "Note: The PC is down while the router is up; this may indicate a pc crash or a connection issue between the router and the PC"
+    return None
+
+
 class TelegramNotifier:
     def __init__(self) -> None:
         self._enabled = bool(settings.telegram_bot_token and settings.telegram_chat_id)
@@ -44,6 +50,10 @@ class TelegramNotifier:
 
         if alert.component.lower() == "router" and alert.status.lower() == "down":
             lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
+
+        pc_note = _pc_router_note(alert.router_status, alert.pc_status)
+        if pc_note:
+            lines.append(pc_note)
 
         lines.append(f"Reason: {alert.message}")
         lines.append("")
@@ -162,6 +172,10 @@ class TelegramNotifier:
 
                 if primary_component == "router":
                     lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
+                elif primary_component == "pc":
+                    pc_note = _pc_router_note(site.router_status, site.pc_status)
+                    if pc_note:
+                        lines.append(pc_note)
 
             if related_components:
                 lines.append(f"Related: {', '.join(f'{TelegramNotifier._component_label(component)} DOWN' for component in related_components)}")

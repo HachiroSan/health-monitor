@@ -47,4 +47,6 @@ class AlertItem(BaseModel):
     checks: list[str] = Field(default_factory=list)
     latest_file: str | None = None
     latest_disk_usage: str | None = None
+    router_status: str | None = None
+    pc_status: str | None = None
     created_at: datetime

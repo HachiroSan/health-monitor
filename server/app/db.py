@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS alerts (
     checks TEXT NOT NULL DEFAULT '[]',
     latest_file TEXT NOT NULL DEFAULT '',
     latest_disk_usage TEXT NOT NULL DEFAULT '',
+    router_status TEXT NOT NULL DEFAULT '',
+    pc_status TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 """
@@ -64,6 +66,12 @@ async def initialize_database(database_path: str) -> None:
 
         if "latest_disk_usage" not in columns:
             await connection.execute("ALTER TABLE alerts ADD COLUMN latest_disk_usage TEXT NOT NULL DEFAULT ''")
+
+        if "router_status" not in columns:
+            await connection.execute("ALTER TABLE alerts ADD COLUMN router_status TEXT NOT NULL DEFAULT ''")
+
+        if "pc_status" not in columns:
+            await connection.execute("ALTER TABLE alerts ADD COLUMN pc_status TEXT NOT NULL DEFAULT ''")
 
         async with connection.execute("PRAGMA table_info(site_reports)") as cursor:
             report_columns = {row[1] for row in await cursor.fetchall()}
@@ -141,7 +149,7 @@ async def store_report(database_path: str, report: AgentReport) -> None:
 async def store_alert(database_path: str, alert: AlertItem) -> None:
     async with aiosqlite.connect(database_path) as connection:
         await connection.execute(
-            "INSERT INTO alerts (site_name, site_id, component, status, message, checks, latest_file, latest_disk_usage, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO alerts (site_name, site_id, component, status, message, checks, latest_file, latest_disk_usage, router_status, pc_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 alert.site_name,
                 alert.site_id,
@@ -151,6 +159,8 @@ async def store_alert(database_path: str, alert: AlertItem) -> None:
                 json.dumps(alert.checks),
                 alert.latest_file or "",
                 alert.latest_disk_usage or "",
+                alert.router_status or "",
+                alert.pc_status or "",
                 alert.created_at.isoformat(),
             ),
         )
@@ -162,7 +172,7 @@ async def fetch_alerts_since(database_path: str, since: datetime) -> list[AlertI
         connection.row_factory = aiosqlite.Row
         async with connection.execute(
             """
-            SELECT site_name, site_id, component, status, message, checks, latest_file, created_at
+            SELECT site_name, site_id, component, status, message, checks, latest_file, latest_disk_usage, router_status, pc_status, created_at
             FROM alerts
             WHERE created_at >= ?
             ORDER BY created_at ASC, id ASC
@@ -182,6 +192,9 @@ async def fetch_alerts_since(database_path: str, since: datetime) -> list[AlertI
                 message=row["message"],
                 checks=json.loads(row["checks"] or "[]"),
                 latest_file=row["latest_file"] or None,
+                latest_disk_usage=row["latest_disk_usage"] or None,
+                router_status=row["router_status"] or None,
+                pc_status=row["pc_status"] or None,
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
         )
