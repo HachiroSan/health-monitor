@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from collections import defaultdict
 
 import httpx
 
@@ -63,6 +62,19 @@ class TelegramNotifier:
 
     @staticmethod
     def format_daily_summary(sites: list[SiteState], generated_at: datetime, timezone_name: str) -> str:
+        return TelegramNotifier._format_daily_summary(sites, generated_at, timezone_name)
+
+    @staticmethod
+    def format_daily_summary_with_alerts(
+        sites: list[SiteState],
+        alerts: list[AlertItem],
+        generated_at: datetime,
+        timezone_name: str,
+    ) -> str:
+        return TelegramNotifier._format_daily_summary(sites, generated_at, timezone_name)
+
+    @staticmethod
+    def _format_daily_summary(sites: list[SiteState], generated_at: datetime, timezone_name: str) -> str:
         tz = ZoneInfo(timezone_name)
         summary_time = generated_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
         total = len(sites)
@@ -87,15 +99,14 @@ class TelegramNotifier:
             last_seen = site.last_seen.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if site.last_seen else "n/a"
             latest_file = site.last_report.latest_file if site.last_report and site.last_report.latest_file else ""
             latest_disk_usage = site.last_report.latest_disk_usage if site.last_report and site.last_report.latest_disk_usage else ""
-            status_label = site.status.replace("_", " ").upper()
-            site_alerts = []
-            lines.extend(
-                [
-                    f"{emoji} {site.site_name} ({site.site_id})",
-                    f"Status: {status_label}",
-                    f"Last seen: {last_seen}",
-                ]
-            )
+
+            lines.extend([
+                f"{emoji} {site.site_name} ({site.site_id})",
+                f"Status: {site.status.replace('_', ' ').upper()}",
+                f"Last seen: {last_seen}",
+            ])
+
+            lines.extend(TelegramNotifier._site_checklist_lines(site, generated_at))
 
             if latest_file:
                 lines.append(f"Latest file: {latest_file}")
@@ -109,89 +120,38 @@ class TelegramNotifier:
         return "\n".join(lines)
 
     @staticmethod
-    def format_daily_summary_with_alerts(
-        sites: list[SiteState],
-        alerts: list[AlertItem],
-        generated_at: datetime,
-        timezone_name: str,
-    ) -> str:
-        tz = ZoneInfo(timezone_name)
-        summary_time = generated_at.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S")
-        total = len(sites)
-        up_count = sum(1 for site in sites if site.status.lower() != "down")
-        down_count = total - up_count
-
-        lines = [
-            f"📊 DAILY SUMMARY | {summary_time}",
-            "Precedence: ROUTER > PC > SITE",
-            f"Total: {total} | Up: {up_count} | Down: {down_count}",
-            "",
+    def _site_checklist_lines(site: SiteState, generated_at: datetime) -> list[str]:
+        return [
+            "Checklist:",
+            f"- Router check: {TelegramNotifier._status_label(site.router_ip, site.router_status)}",
+            f"- PC check: {TelegramNotifier._status_label(site.pc_ip, site.pc_status)}",
+            f"- Heartbeat check: {TelegramNotifier._heartbeat_status(site, generated_at)}",
         ]
 
-        if not sites:
-            lines.append("No site reports yet.")
-            return "\n".join(lines)
+    @staticmethod
+    def _status_label(target_ip: str | None, status: str | None) -> str:
+        if not target_ip:
+            return "N/A"
+        if not status:
+            return "N/A"
+        return "DOWN" if status.lower() == "down" else "OK"
 
-        ordered_sites = sorted(sites, key=lambda item: (0 if item.status.lower() == "down" else 1, item.site_name.lower()))
+    @staticmethod
+    def _heartbeat_status(site: SiteState, generated_at: datetime) -> str:
+        if site.status.lower() != "down":
+            return "OK"
 
-        for index, site in enumerate(ordered_sites):
-            emoji = "🔴" if site.status.lower() == "down" else "🟢"
-            last_seen = site.last_seen.astimezone(tz).strftime("%Y-%m-%d %H:%M:%S") if site.last_seen else "n/a"
-            latest_file = site.last_report.latest_file if site.last_report and site.last_report.latest_file else ""
-            latest_disk_usage = site.last_report.latest_disk_usage if site.last_report and site.last_report.latest_disk_usage else ""
+        if site.router_status == "down" or site.pc_status == "down":
+            if site.last_seen:
+                age_seconds = (
+                    generated_at.astimezone(timezone.utc) - site.last_seen.astimezone(timezone.utc)
+                ).total_seconds()
+                if age_seconds <= settings.heartbeat_timeout_seconds:
+                    return "OK"
+            else:
+                return "DOWN"
 
-            down_components = []
-            if site.router_status == "down":
-                down_components.append("router")
-            if site.pc_status == "down":
-                down_components.append("pc")
-            
-            # Use SiteState status to determine if agent/site heartbeat is down
-            if site.status.lower() == "down" and not (site.router_status == "down" or site.pc_status == "down"):
-                # If site is generally down but we don't have router/pc explicitly down, it's a site (agent) timeout.
-                down_components.append("site")
-            elif site.status.lower() == "down" and (site.router_status == "down" or site.pc_status == "down"):
-                # Additionally check if the heartbeat is also technically expired
-                if site.last_seen:
-                    age_seconds = (generated_at.astimezone(timezone.utc) - site.last_seen.astimezone(timezone.utc)).total_seconds()
-                    if age_seconds > settings.heartbeat_timeout_seconds:
-                        down_components.append("site")
-                else:
-                    down_components.append("site")
-
-            primary_component = down_components[0] if down_components else None
-            related_components = down_components[1:] if len(down_components) > 1 else []
-
-            lines.extend([
-                f"{emoji} {site.site_name} ({site.site_id})",
-                f"Overall: {site.status.replace('_', ' ').upper()}",
-            ])
-
-            if primary_component is not None:
-                lines.append(f"Primary: {TelegramNotifier._component_label(primary_component)} DOWN")
-
-                if primary_component == "router":
-                    lines.append("Note: The PC may also be affected, as it relies on the router for internet access")
-                elif primary_component == "pc":
-                    pc_note = _pc_router_note(site.router_status, site.pc_status)
-                    if pc_note:
-                        lines.append(pc_note)
-
-            if related_components:
-                lines.append(f"Related: {', '.join(f'{TelegramNotifier._component_label(component)} DOWN' for component in related_components)}")
-
-            lines.append(f"Last seen: {last_seen}")
-
-            if latest_file:
-                lines.append(f"Latest file: {latest_file}")
-
-            if latest_disk_usage:
-                lines.append(f"Disk usage: {latest_disk_usage}")
-
-            if index != len(ordered_sites) - 1:
-                lines.append("")
-
-        return "\n".join(lines)
+        return "DOWN"
 
     @staticmethod
     def _component_label(component: str) -> str:

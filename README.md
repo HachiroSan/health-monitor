@@ -68,6 +68,7 @@ The server can send a daily Telegram summary at a fixed local time using:
 - `DAILY_SUMMARY_TIMEZONE` like `Asia/Kuala_Lumpur`
 
 The summary uses the configured timezone name, not a GMT offset.
+Each site block now includes a checklist for the router, PC, and heartbeat status so the daily digest is easier to scan.
 
 ## Router vs PC precedence
 
